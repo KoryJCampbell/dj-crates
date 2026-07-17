@@ -43,6 +43,8 @@ PLAYLISTS
 
 - **One-button sync** — press the button and your Serato crates match your folders
 - **Full rebuild on every sync** — cleans old synced crates and writes fresh ones
+- **New This Week / New This Month** — auto-generated crates under PLAYLISTS with your freshest arrivals (by file creation date), rebuilt on every sync
+- **Duplicate finder** — groups tracks by artist + title + duration, ranks by bitrate, and writes a `SMART › Duplicates Review` crate plus a JSON report (`~/.dj-crates-tools/duplicates_report.json`). Read-only — never deletes files
 - **Safe** — only touches crates prefixed with `GENRES` or `PLAYLISTS`, never deletes crates you created manually in Serato
 - **Native Serato format** — writes `.crate` files directly using Serato's TLV binary format (no Serato API needed)
 - **Fast** — built with Rust (Tauri) so scanning 18,000+ tracks takes seconds

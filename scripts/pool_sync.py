@@ -59,7 +59,7 @@ CONFIG_TEMPLATE = {
         "include_any": [
             "hip-hop", "hip hop", "rap", "r&b", "rnb",
             "afrobeat", "amapiano", "dancehall", "reggaeton", "reggae",
-            "latin", "gospel", "house", "soul", "pop",
+            "latin", "gospel", "house", "soul", "pop", "funk", "disco",
         ],
         "_include_note": "Matches anywhere in the remote PATH (folder or "
         "filename), case-insensitive. Empty = allow all.",

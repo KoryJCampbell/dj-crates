@@ -2,7 +2,7 @@ use base64::{engine::general_purpose, Engine as _};
 use lofty::prelude::*;
 use lofty::probe::Probe;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -1320,6 +1320,13 @@ fn sync_to_serato(
     let mut new_week: Vec<String> = Vec::new();
     let mut new_month: Vec<String> = Vec::new();
 
+    // One library entry per REAL file: the folder tree uses symlinks to put a
+    // track in multiple crates (e.g. Kory Likes + its genre folder), so track
+    // identity must resolve through the link. Crate PLACEMENT still comes
+    // from where the link sits.
+    let mut db_new_seen: HashSet<String> = HashSet::new();
+    let mut lib_seen: HashSet<String> = HashSet::new();
+
     for scan_dir in &dirs_to_scan {
         for entry in WalkDir::new(scan_dir)
             .into_iter()
@@ -1327,9 +1334,15 @@ fn sync_to_serato(
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
+            // NOTE: is_file() follows symlinks, so broken links are skipped here.
             if !path.is_file() || !is_audio_file(path) {
                 continue;
             }
+            // Canonical target of the (possibly linked) file — this is what
+            // goes into crates and database V2 so Serato sees ONE track with
+            // one analysis / cue set, in as many crates as it appears.
+            let canonical_buf = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+            let canonical = canonical_buf.as_path();
 
             if let Ok(rel) = path.strip_prefix(&crates_dir) {
                 let parts: Vec<String> = rel
@@ -1351,13 +1364,13 @@ fn sync_to_serato(
                     (String::new(), String::new())
                 };
 
-                // Read track metadata
-                let mut track = read_track_meta(path, &genre_from_path, &subgenre_from_path);
+                // Read track metadata from the canonical file
+                let mut track = read_track_meta(canonical, &genre_from_path, &subgenre_from_path);
                 track.hierarchy = parts.clone();
 
                 // Check if BPM was adjusted (write back only in non-preview mode)
                 if track.bpm > 0.0 {
-                    if let Ok(mut tagged) = Probe::open(path).and_then(|p| p.read()) {
+                    if let Ok(mut tagged) = Probe::open(canonical).and_then(|p| p.read()) {
                         let raw_bpm = tagged
                             .primary_tag()
                             .or_else(|| tagged.first_tag())
@@ -1373,7 +1386,7 @@ fn sync_to_serato(
                             if !preview {
                                 if let Some(tag) = tagged.primary_tag_mut() {
                                     tag.insert_text(lofty::tag::ItemKey::IntegerBpm, format!("{:.2}", track.bpm));
-                                    let _ = tagged.save_to_path(path, lofty::config::WriteOptions::default());
+                                    let _ = tagged.save_to_path(canonical, lofty::config::WriteOptions::default());
                                 }
                             }
                         }
@@ -1396,11 +1409,18 @@ fn sync_to_serato(
                     }
                 }
 
-                // Only add to database if not already known
-                if !existing_tracks.contains_key(&track.serato_path) {
+                // Only add to database if not already known — and only once
+                // per canonical file, however many links point at it.
+                if !existing_tracks.contains_key(&track.serato_path)
+                    && db_new_seen.insert(track.serato_path.clone())
+                {
                     all_tracks.push(track.clone());
                 }
-                full_library.push(track);
+                // Library cache keeps one entry per real file. GENRES is
+                // scanned before PLAYLISTS, so the genre-tree hierarchy wins.
+                if lib_seen.insert(track.serato_path.clone()) {
+                    full_library.push(track.clone());
+                }
 
                 // Add to crate hierarchy
                 for i in 1..=parts.len() {
@@ -1461,9 +1481,17 @@ fn sync_to_serato(
             if tracks.is_empty() {
                 continue;
             }
+            // Same canonical file reachable twice within one folder (e.g. a
+            // link sitting next to its target) must not duplicate the row.
+            let mut row_seen: HashSet<&String> = HashSet::new();
+            let tracks: Vec<String> = tracks
+                .iter()
+                .filter(|t| row_seen.insert(*t))
+                .cloned()
+                .collect();
             total_track_entries += tracks.len();
             if !preview {
-                let data = build_crate_bytes(tracks);
+                let data = build_crate_bytes(&tracks);
                 let crate_file = staging_dir.join(format!("{}.crate", crate_name));
 
                 if let Ok(mut file) = fs::File::create(&crate_file) {

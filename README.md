@@ -123,6 +123,16 @@ Safety rails around every run:
   via temp-file + rename with rotating dated backups (newest 10 kept)
 - Every intake move is logged to `~/.dj-crates-tools/intake-moves.log` for undo
 
+### Symlinks = multi-crate membership
+
+One song often belongs in several crates (its genre folder, a playlist, Kory
+Likes). The folder tree expresses that with **symlinks** — the real file lives
+once in the genre tree, and other crate folders hold links to it. Sync resolves
+every link to its canonical file before writing crates and `database V2`, so
+Serato sees **one** track (one analysis, one set of cues, one library row) that
+appears in every crate whose folder contains it or a link to it. Broken links
+(target moved/deleted) are skipped.
+
 `label-moods` and `enrich-popularity` are deliberately not in the pipeline until
 their known defects are fixed (see `reports/` and `AUDIT-2026-07-17.md`).
 

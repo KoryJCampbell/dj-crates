@@ -9,13 +9,9 @@ import { SyncLog, logLineFromProgress, phaseTag, type LogLine } from "./componen
 import { DjcButton, Eyebrow, Icon } from "./components/primitives";
 import type {
   AutoCueReport,
-  BpmFixReport,
   ClearTagsReport,
   Config,
   DupesResult,
-  EnrichResult,
-  MoodReport,
-  SanitizeReport,
   SmartCratePreset,
   ProgressPayload,
 } from "./types";
@@ -143,113 +139,6 @@ function App() {
     }
   };
 
-  const runFixBpms = async () => {
-    if (!config || !isConfigured(config)) {
-      setShowSettings(true);
-      return;
-    }
-    setError("");
-    setSyncState("syncing");
-    setScreen("sync");
-    resetLog();
-    await yieldToPaint();
-    try {
-      const r = await invoke<BpmFixReport>("normalize_bpms", {
-        cratesRoot: config.cratesRoot,
-        seratoPath: config.seratoPath || null,
-      });
-      setSummary(
-        `${r.scanned} scanned · ${r.halved} halved · ${r.doubled} doubled` +
-          (r.quartered > 0 ? ` · ${r.quartered} quartered` : "") +
-          (r.serato_db_updated > 0
-            ? ` · ${r.serato_db_updated} synced to Serato db (restart Serato to see)`
-            : "") +
-          (r.errors.length > 0 ? ` · ${r.errors.length} errors` : ""),
-      );
-      setLogPct(1);
-      setLogPhase("done");
-      setScreen("main");
-      setSyncState("done");
-    } catch (e) {
-      setError(String(e));
-      setScreen("main");
-      setSyncState("error");
-    }
-  };
-
-  const runLabelMoods = async () => {
-    if (!config || !isConfigured(config)) {
-      setShowSettings(true);
-      return;
-    }
-    setError("");
-    setSyncState("syncing");
-    setScreen("sync");
-    resetLog();
-    await yieldToPaint();
-    try {
-      const r = await invoke<MoodReport>("label_moods", {
-        cratesRoot: config.cratesRoot,
-        seratoPath: config.seratoPath || null,
-      });
-      const breakdown = r.by_mood
-        .map(([m, n]) => `${m}: ${n}`)
-        .join(" · ");
-      const seratoNote =
-        r.serato_db_updated > 0
-          ? ` · ${r.serato_db_updated} synced to Serato db (restart Serato to see)`
-          : "";
-      setSummary(
-        `${r.labeled}/${r.scanned} labeled · ${r.blank} blank${seratoNote}` +
-          (breakdown ? ` — ${breakdown}` : ""),
-      );
-      setLogPct(1);
-      setLogPhase("done");
-      setScreen("main");
-      setSyncState("done");
-    } catch (e) {
-      setError(String(e));
-      setScreen("main");
-      setSyncState("error");
-    }
-  };
-
-  const runEnrichPopularity = async () => {
-    if (!config || !isConfigured(config)) {
-      setShowSettings(true);
-      return;
-    }
-    if (!config.spotifyClientId || !config.spotifyClientSecret) {
-      setError("Set Spotify Client ID + Secret in Settings first.");
-      setSyncState("error");
-      return;
-    }
-    setError("");
-    setSyncState("syncing");
-    setScreen("sync");
-    resetLog();
-    await yieldToPaint();
-    try {
-      const r = await invoke<EnrichResult>("enrich_spotify_popularity", {
-        clientId: config.spotifyClientId,
-        clientSecret: config.spotifyClientSecret,
-        force: false,
-      });
-      setSummary(
-        `${r.total} total · ${r.enriched} fetched · ${r.cached} cached · ${r.not_found} not found` +
-          (r.errors > 0 ? ` · ${r.errors} errors` : ""),
-      );
-      setLogPct(1);
-      setLogPhase("done");
-      setScreen("main");
-      setSyncState("done");
-    } catch (e) {
-      setError(String(e));
-      setScreen("main");
-      setSyncState("error");
-    }
-  };
-
   const runClearTags = async () => {
     if (!config || !isConfigured(config)) {
       setShowSettings(true);
@@ -269,44 +158,6 @@ function App() {
         `${r.cleared}/${r.scanned} cleared (Comment/Grouping/Label)` +
           (r.serato_db_updated > 0
             ? ` · ${r.serato_db_updated} Serato db entries cleared (restart Serato)`
-            : "") +
-          (r.errors.length > 0 ? ` · ${r.errors.length} errors` : ""),
-      );
-      setLogPct(1);
-      setLogPhase("done");
-      setScreen("main");
-      setSyncState("done");
-    } catch (e) {
-      setError(String(e));
-      setScreen("main");
-      setSyncState("error");
-    }
-  };
-
-  const runSanitize = async () => {
-    if (!config || !isConfigured(config)) {
-      setShowSettings(true);
-      return;
-    }
-    setError("");
-    setSyncState("syncing");
-    setScreen("sync");
-    resetLog();
-    await yieldToPaint();
-    try {
-      const r = await invoke<SanitizeReport>("sanitize_library", {
-        cratesRoot: config.cratesRoot,
-        seratoPath: config.seratoPath || null,
-        spotifyClientId: config.spotifyClientId || null,
-        spotifyClientSecret: config.spotifyClientSecret || null,
-      });
-      setSummary(
-        `${r.updated}/${r.scanned} updated (genre + grouping + year)` +
-          (r.comments_written > 0
-            ? ` · ${r.comments_written} comments written (Spotify subgenre array)`
-            : "") +
-          (r.serato_db_updated > 0
-            ? ` · ${r.serato_db_updated} Serato db entries updated`
             : "") +
           (r.errors.length > 0 ? ` · ${r.errors.length} errors` : ""),
       );
@@ -427,12 +278,7 @@ function App() {
           summary={summary}
           error={error}
           onSync={runSync}
-          onFixBpms={runFixBpms}
-          onLabelMoods={runLabelMoods}
-          onEnrichPop={runEnrichPopularity}
           onClearTags={runClearTags}
-          onSanitize={runSanitize}
-          onAutoCue={() => runAutoCue(false)}
           onResetCues={() => runAutoCue(true)}
           onFindDupes={runFindDupes}
           onSmart={() => (configured ? setShowSmart(true) : setShowSettings(true))}
@@ -483,12 +329,7 @@ function MainScreen({
   summary,
   error,
   onSync,
-  onFixBpms,
-  onLabelMoods,
-  onEnrichPop,
   onClearTags,
-  onSanitize,
-  onAutoCue,
   onResetCues,
   onFindDupes,
   onSmart,
@@ -500,18 +341,14 @@ function MainScreen({
   summary: string;
   error: string;
   onSync: () => void;
-  onFixBpms: () => void;
-  onLabelMoods: () => void;
-  onEnrichPop: () => void;
   onClearTags: () => void;
-  onSanitize: () => void;
-  onAutoCue: () => void;
   onResetCues: () => void;
   onFindDupes: () => void;
   onSmart: () => void;
   onSettings: () => void;
   disabled: boolean;
 }) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
   return (
     <div
       style={{
@@ -598,52 +435,10 @@ function MainScreen({
             </div>
           ) : (
             <div style={{ fontSize: 13, color: "var(--color-text-2)", lineHeight: 1.5 }}>
-              One click. Sorts Unsorted into your genre folders, writes tags, rebuilds your Serato
-              crates to match.
+              One button. Files new music into your genre folders, cleans tags, fixes BPMs, sets
+              downbeat cues, rebuilds your Serato crates, and updates Apple Music.
             </div>
           )}
-        </div>
-
-        {/* Post-sync pipeline — numbered 1-5, run left to right */}
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
-          <Eyebrow>Post-Sync Pipeline · run in order</Eyebrow>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-            <PipelineStep
-              n={1}
-              label="Sanitize"
-              hint="normalize genre · grouping · year"
-              onClick={onSanitize}
-              disabled={disabled}
-            />
-            <PipelineStep
-              n={2}
-              label="Fix BPMs"
-              hint="halve / double out-of-range"
-              onClick={onFixBpms}
-              disabled={disabled}
-            />
-            <PipelineStep
-              n={3}
-              label="Label Moods"
-              hint="warmup · peak · slowdown"
-              onClick={onLabelMoods}
-              disabled={disabled}
-            />
-            <PipelineStep
-              n={4}
-              label="Fetch Popularity"
-              hint="spotify popularity score"
-              onClick={onEnrichPop}
-              disabled={disabled}
-            />
-            <PipelineStep
-              n={5}
-              label="Downbeat Cue"
-              hint="set hot cue 8 at first downbeat"
-              onClick={onAutoCue}
-              disabled={disabled}
-            />
-          </div>
         </div>
       </div>
 
@@ -660,104 +455,49 @@ function MainScreen({
         <DjcButton kind="ghost" size="sm" icon={<Icon.Wand />} onClick={onSmart} hint="⌘+K">
           Smart Crates
         </DjcButton>
-        <DjcButton
-          kind="ghost"
-          size="sm"
-          icon={<Icon.Diff />}
-          onClick={onFindDupes}
-          disabled={disabled}
-          title="Find duplicate tracks (same artist + title + duration). Read-only — writes a report and a SMART › Duplicates Review crate, never deletes files."
-        >
-          Find Dupes
-        </DjcButton>
         <div style={{ flex: 1 }} />
-        <DjcButton
-          kind="danger"
-          size="sm"
-          icon={<Icon.Trash />}
-          onClick={onResetCues}
-          disabled={disabled}
-          title="Overwrite every existing hot cue in the library — sets cue 8 at the first downbeat of each track. Use this when cues are drifting / off-beat."
-        >
-          Reset Cues
-        </DjcButton>
-        <DjcButton
-          kind="danger"
-          size="sm"
-          icon={<Icon.Trash />}
-          onClick={onClearTags}
-          disabled={disabled}
-          title="Wipe Comment / Grouping / Label from every file. Destructive — undoable only by re-running the pipeline."
-        >
-          Clear Tags
+        {showAdvanced && (
+          <>
+            <DjcButton
+              kind="ghost"
+              size="sm"
+              icon={<Icon.Diff />}
+              onClick={onFindDupes}
+              disabled={disabled}
+              title="Find duplicate tracks (same artist + title + duration). Read-only — writes a report and a SMART › Duplicates Review crate, never deletes files."
+            >
+              Find Dupes
+            </DjcButton>
+            <DjcButton
+              kind="danger"
+              size="sm"
+              icon={<Icon.Trash />}
+              onClick={onResetCues}
+              disabled={disabled}
+              title="Overwrite every existing hot cue in the library — sets cue 8 at the first downbeat of each track. Use this when cues are drifting / off-beat."
+            >
+              Reset Cues
+            </DjcButton>
+            <DjcButton
+              kind="danger"
+              size="sm"
+              icon={<Icon.Trash />}
+              onClick={onClearTags}
+              disabled={disabled}
+              title="Wipe Comment / Grouping / Label from every file. Destructive — undoable only by re-running the pipeline."
+            >
+              Clear Tags
+            </DjcButton>
+          </>
+        )}
+        <DjcButton kind="ghost" size="sm" onClick={() => setShowAdvanced(!showAdvanced)}>
+          {showAdvanced ? "Hide Advanced" : "Advanced"}
         </DjcButton>
         <DjcButton kind="ghost" size="sm" icon={<Icon.Settings />} onClick={onSettings} hint="⌘+,">
           Settings
         </DjcButton>
       </div>
     </div>
-  );
-}
-
-function PipelineStep({
-  n,
-  label,
-  hint,
-  onClick,
-  disabled,
-}: {
-  n: number;
-  label: string;
-  hint: string;
-  onClick: () => void;
-  disabled: boolean;
-}) {
-  const [hover, setHover] = useState(false);
-  return (
-    <button
-      onClick={disabled ? undefined : onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      disabled={disabled}
-      title={hint}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 8,
-        height: 30,
-        padding: "0 12px 0 6px",
-        fontFamily: "var(--font-sans)",
-        fontSize: 12,
-        fontWeight: 500,
-        color: "var(--color-text)",
-        background: hover && !disabled ? "rgba(255,255,255,0.05)" : "transparent",
-        border: "0.5px solid rgba(255,255,255,0.12)",
-        borderRadius: 15,
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.4 : 1,
-        transition: "background 80ms ease",
-        whiteSpace: "nowrap",
-      }}
-    >
-      <span
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 20,
-          height: 20,
-          borderRadius: "50%",
-          background: "var(--color-accent)",
-          color: "#0b0b0c",
-          fontFamily: "var(--font-mono)",
-          fontSize: 11,
-          fontWeight: 600,
-        }}
-      >
-        {n}
-      </span>
-      {label}
-    </button>
   );
 }
 

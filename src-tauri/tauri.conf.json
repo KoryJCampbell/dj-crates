@@ -13,11 +13,11 @@
     "windows": [
       {
         "title": "DJ Crates",
-        "width": 300,
-        "height": 350,
-        "minWidth": 250,
-        "minHeight": 300,
-        "resizable": false
+        "width": 1000,
+        "height": 660,
+        "minWidth": 880,
+        "minHeight": 560,
+        "resizable": true
       }
     ],
     "security": {

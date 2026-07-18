@@ -43,6 +43,8 @@ PLAYLISTS
 
 - **One-button sync** — press the button and your Serato crates match your folders
 - **Full rebuild on every sync** — cleans old synced crates and writes fresh ones
+- **New This Week / New This Month** — auto-generated crates under PLAYLISTS with your freshest arrivals (by file creation date), rebuilt on every sync
+- **Duplicate finder** — groups tracks by artist + title + duration, ranks by bitrate, and writes a `SMART › Duplicates Review` crate plus a JSON report (`~/.dj-crates-tools/duplicates_report.json`). Read-only — never deletes files
 - **Safe** — only touches crates prefixed with `GENRES` or `PLAYLISTS`, never deletes crates you created manually in Serato
 - **Native Serato format** — writes `.crate` files directly using Serato's TLV binary format (no Serato API needed)
 - **Fast** — built with Rust (Tauri) so scanning 18,000+ tracks takes seconds
@@ -94,6 +96,45 @@ Update these to match your setup, or add a settings UI.
 2. Builds a crate hierarchy using Serato's `%%` subcrate naming convention
 3. Writes binary `.crate` files with proper TLV encoding (version header, column definitions, track entries)
 4. Every track appears at every level of its hierarchy (genre crate, subgenre crate, decade crate, year crate)
+
+## The One Button
+
+The Sync button (and `--headless pipeline`) runs the whole workflow in order:
+
+1. **intake** — files new arrivals out of `GENRES/UNASSIGNED` using a conservative
+   cascade: artist already filed in the library → follow them; unambiguous genre
+   tag → mapped folder; otherwise the track stays put and is reported. Never guesses.
+2. **sanitize** — tag hygiene (genre/grouping from folder path)
+3. **fix-bpms** — BPM normalization
+4. **downbeat-cue** — first-downbeat cue points (incremental)
+5. **sync** — rebuilds Serato crates and `database V2`
+6. **apple-music** — mirrors `GENRES`/`PLAYLISTS` folder trees into Music.app
+   playlist folders; only leaves whose track counts drifted get rebuilt
+
+Safety rails around every run:
+
+- **Serato-closed guard** — refuses to rewrite crates/db while Serato DJ is open
+- **Pipeline lock** — the UI button, `dj-daily`, and `dj-weekly` can never overlap
+  (`~/.dj-crates-tools/pipeline.lock`, stale locks auto-broken)
+- **Snapshots** — `Subcrates/` + `database V2` + `neworder.pref` are zipped to
+  `~/.dj-crates-tools/snapshots/` (newest 14 kept) before any destructive write
+- **Atomic writes** — new crates are staged and swapped in at the end (an
+  interrupted sync can no longer gut Subcrates), and `database V2` is written
+  via temp-file + rename with rotating dated backups (newest 10 kept)
+- Every intake move is logged to `~/.dj-crates-tools/intake-moves.log` for undo
+
+### Symlinks = multi-crate membership
+
+One song often belongs in several crates (its genre folder, a playlist, Kory
+Likes). The folder tree expresses that with **symlinks** — the real file lives
+once in the genre tree, and other crate folders hold links to it. Sync resolves
+every link to its canonical file before writing crates and `database V2`, so
+Serato sees **one** track (one analysis, one set of cues, one library row) that
+appears in every crate whose folder contains it or a link to it. Broken links
+(target moved/deleted) are skipped.
+
+`label-moods` and `enrich-popularity` are deliberately not in the pipeline until
+their known defects are fixed (see `reports/` and `AUDIT-2026-07-17.md`).
 
 ## License
 

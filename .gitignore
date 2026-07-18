@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# Secrets / local state — never commit
+.cache
+.venv
+scripts/enrichment.log
+__pycache__/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

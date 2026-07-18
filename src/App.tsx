@@ -15,13 +15,9 @@ import type {
   DupesResult,
   EnrichResult,
   MoodReport,
-  MoveReport,
   SanitizeReport,
   SmartCratePreset,
-  SyncResult,
   ProgressPayload,
-  UnsortedMove,
-  UnsortedTrack,
 } from "./types";
 import "./index.css";
 
@@ -125,52 +121,21 @@ function App() {
     resetLog();
     await yieldToPaint();
     try {
-      // 1. Scan Unsorted (if configured) and move EVERYTHING — confident
-      //    matches into GENRES/<g>/<sub>/, edits into GENRES/<g>/EDITS/,
-      //    leftovers into _REVIEW/_Unrouted/. Tags are written during apply.
-      let movedLabel = "";
-      if (config.unsortedPath) {
-        const tracks = await invoke<UnsortedTrack[]>("scan_unsorted", {
-          unsortedPath: config.unsortedPath,
-          cratesRoot: config.cratesRoot,
-          spotifyClientId: config.spotifyClientId || null,
-          spotifyClientSecret: config.spotifyClientSecret || null,
-        });
-        const moves: UnsortedMove[] = tracks.map((t) => ({
-          abs_path: t.abs_path,
-          dest_dir: t.suggested_dest,
-          dest_filename: t.cleaned_filename || t.filename,
-          genre: t.detected_genre ?? "",
-          grouping: t.is_edit ? "Edit" : t.detected_subgenre ?? "",
-        }));
-        if (moves.length > 0) {
-          const report = await invoke<MoveReport>("apply_unsorted_moves", { moves });
-          movedLabel = ` · ${report.moved} moved`;
-        }
-      }
-
-      // 2. Rebuild Serato crates from the updated folder tree.
+      // One button, whole pipeline: intake → sanitize → fix-bpms →
+      // downbeat-cue → serato sync → apple-music mirror, wrapped in the
+      // safety rails (Serato-closed guard, pipeline lock, snapshot).
       setSyncState("syncing");
-      const result = await invoke<SyncResult>("sync_to_serato", {
-        cratesRoot: config.cratesRoot,
-        seratoPath: config.seratoPath,
-        pythonVenv: config.pythonVenv || null,
-        scriptsDir: config.scriptsDir || null,
-        unsortedPath: config.unsortedPath || null,
-        clean: true,
-        preview: false,
-      });
-      setSummary(
-        `${result.crates_written.toLocaleString()} crates · ${result.total_track_entries.toLocaleString()} tracks` +
-          movedLabel +
-          (result.bpm_adjusted > 0 ? ` · ${result.bpm_adjusted} bpm fixed` : "") +
-          (result.database_tracks_new > 0 ? ` · ${result.database_tracks_new} db rows` : "") +
-          (result.new_this_week > 0 ? ` · ${result.new_this_week} new this week` : ""),
+      const result = await invoke<{ summary: string[]; failed: number }>(
+        "run_full_pipeline",
       );
+      setSummary(result.summary.join("  ·  "));
+      if (result.failed > 0) {
+        setError(`${result.failed} step(s) failed — see summary`);
+      }
       setLogPct(1);
       setLogPhase("done");
       setScreen("main");
-      setSyncState("done");
+      setSyncState(result.failed > 0 ? "error" : "done");
     } catch (e) {
       setError(String(e));
       setScreen("main");

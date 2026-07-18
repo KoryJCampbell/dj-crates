@@ -17,6 +17,7 @@ mod dupes;
 mod headless;
 mod normalize;
 mod prune;
+mod safety;
 mod spotify;
 mod tagging;
 mod unsorted;
@@ -674,12 +675,56 @@ pub(crate) fn update_serato_db(
         pos = full_end;
     }
 
-    // Backup (only on first write — don't clobber a good backup)
-    let backup = db_path.with_extension("V2.bak");
-    if !backup.exists() {
-        fs::copy(db_path, &backup).map_err(|e| format!("backup: {}", e))?;
+    // Rotating backup (the old only-once .bak froze at its first write and was
+    // useless months later). Keep the newest 10 dated backups.
+    let stamp = std::process::Command::new("/bin/date")
+        .arg("+%Y%m%d-%H%M%S")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_else(|| "unknown".into());
+    let db_name = db_path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
+    if let Some(dir) = db_path.parent() {
+        let bak_prefix = format!("{}.bak.", db_name);
+        let backup = dir.join(format!("{}{}", bak_prefix, stamp));
+        let _ = fs::copy(db_path, &backup);
+        let mut baks: Vec<PathBuf> = fs::read_dir(dir)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok())
+                    .map(|e| e.path())
+                    .filter(|p| {
+                        p.file_name()
+                            .map(|n| n.to_string_lossy().starts_with(&bak_prefix))
+                            .unwrap_or(false)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        baks.sort();
+        while baks.len() > 10 {
+            let _ = fs::remove_file(baks.remove(0));
+        }
     }
-    fs::write(db_path, out).map_err(|e| format!("db write: {}", e))?;
+    // Atomic write: temp + rename, so a crash can't truncate the db.
+    // Temp name derives from the target so concurrent writers (and parallel
+    // tests sharing a temp dir) never collide.
+    let tmp = db_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!(
+            "{}.tmp",
+            db_path.file_name().unwrap_or_default().to_string_lossy()
+        ));
+    fs::write(&tmp, &out)
+        .and_then(|_| fs::rename(&tmp, db_path))
+        .map_err(|e| {
+            let _ = fs::remove_file(&tmp);
+            format!("db write: {}", e)
+        })?;
     Ok(count)
 }
 
@@ -1131,7 +1176,25 @@ pub struct EnrichResult {
     pub errors: usize,
 }
 
-#[tauri::command]
+/// Result of the one-button full pipeline: per-step summary lines plus how
+/// many steps failed (the run keeps going past individual failures).
+#[derive(serde::Serialize)]
+pub struct PipelineResult {
+    pub summary: Vec<String>,
+    pub failed: usize,
+}
+
+/// The one-button sync: intake → sanitize → fix-bpms → downbeat-cue →
+/// sync → apple-music, wrapped in the safety rails (Serato-closed guard,
+/// pipeline lock, pre-run snapshot). `async` so the multi-minute run does
+/// not block Tauri's main thread / freeze the UI.
+#[tauri::command(async)]
+fn run_full_pipeline(app: AppHandle) -> Result<PipelineResult, String> {
+    let (summary, failed) = headless::run_steps_core(&app, headless::PIPELINE_STEPS)?;
+    Ok(PipelineResult { summary, failed })
+}
+
+#[tauri::command(async)]
 fn sync_to_serato(
     app: AppHandle,
     crates_root: String,
@@ -1182,7 +1245,10 @@ fn sync_to_serato(
         }
     }
 
-    // Collect the list of synced crates that would be (or will be) deleted on clean
+    // Collect the list of synced crates that would be deleted on clean.
+    // NOTE: nothing is deleted here — the actual delete happens in the commit
+    // phase at the end, after every replacement crate has been built, so an
+    // interrupted run can no longer gut Subcrates (the 2026-04-28 incident).
     let mut crates_to_delete: Vec<String> = Vec::new();
     if clean {
         if let Ok(entries) = fs::read_dir(&subcrates_dir) {
@@ -1195,9 +1261,6 @@ fn sync_to_serato(
                         || name == "PLAYLISTS.crate")
                 {
                     crates_to_delete.push(name.trim_end_matches(".crate").to_string());
-                    if !preview {
-                        let _ = fs::remove_file(entry.path());
-                    }
                 }
             }
         }
@@ -1383,6 +1446,16 @@ fn sync_to_serato(
 
     emit_progress(Some(&app), "writing_crates", 0, sorted_names.len(), if preview { "Preview: planning crates" } else { "Writing crate files" });
 
+    // Stage all new crate files in a temp dir next to Subcrates, then commit
+    // with a fast delete+rename pass at the end. The exposure window drops
+    // from the whole scan/build (minutes) to the rename loop (milliseconds).
+    let staging_dir = subcrates_dir.join(format!(".sync-staging-{}", std::process::id()));
+    if !preview {
+        let _ = fs::remove_dir_all(&staging_dir);
+        fs::create_dir_all(&staging_dir)
+            .map_err(|e| format!("staging dir: {}", e))?;
+    }
+
     for (idx, crate_name) in sorted_names.iter().enumerate() {
         if let Some(tracks) = crates.get(crate_name) {
             if tracks.is_empty() {
@@ -1391,7 +1464,7 @@ fn sync_to_serato(
             total_track_entries += tracks.len();
             if !preview {
                 let data = build_crate_bytes(tracks);
-                let crate_file = subcrates_dir.join(format!("{}.crate", crate_name));
+                let crate_file = staging_dir.join(format!("{}.crate", crate_name));
 
                 if let Ok(mut file) = fs::File::create(&crate_file) {
                     if file.write_all(&data).is_ok() {
@@ -1405,6 +1478,25 @@ fn sync_to_serato(
         if idx % 25 == 0 {
             emit_progress(Some(&app), "writing_crates", idx + 1, sorted_names.len(), "Writing crate files");
         }
+    }
+
+    // Commit phase: everything is staged — now swap old for new.
+    if !preview {
+        for name in &crates_to_delete {
+            let _ = fs::remove_file(subcrates_dir.join(format!("{}.crate", name)));
+        }
+        if let Ok(entries) = fs::read_dir(&staging_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let dest = subcrates_dir.join(entry.file_name());
+                if fs::rename(entry.path(), &dest).is_err() {
+                    // Cross-checkpoint fallback: copy then remove.
+                    if fs::copy(entry.path(), &dest).is_ok() {
+                        let _ = fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+        let _ = fs::remove_dir_all(&staging_dir);
     }
 
     // The fresh-arrival crates need a PLAYLISTS parent group to nest under.
@@ -1442,9 +1534,21 @@ fn sync_to_serato(
             }
         }
 
-        // Write updated database
-        if let Ok(mut file) = fs::File::create(&db_path) {
-            let _ = file.write_all(&db_data);
+        // Write updated database atomically: temp file + rename (atomic on APFS),
+        // so a crash mid-write can no longer leave a truncated database V2.
+        let tmp_db = db_path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .join(format!(
+                "{}.tmp",
+                db_path.file_name().unwrap_or_default().to_string_lossy()
+            ));
+        match fs::write(&tmp_db, &db_data).and_then(|_| fs::rename(&tmp_db, &db_path)) {
+            Ok(_) => {}
+            Err(e) => {
+                let _ = fs::remove_file(&tmp_db);
+                return Err(format!("database V2 write: {}", e));
+            }
         }
     }
 
@@ -1862,6 +1966,7 @@ pub fn run() {
             scan_library,
             run_python_script,
             sync_to_serato,
+            run_full_pipeline,
             generate_smart_crate,
             enrich_spotify_popularity,
             dupes::find_duplicates,
@@ -2081,7 +2186,13 @@ mod db_update_tests {
         assert_eq!(b.1.as_deref(), Some("95.00"), "BPM preserved");
         assert_eq!(b.2.as_deref(), Some("Slowdown"), "Label inserted");
 
-        assert!(path.with_extension("V2.bak").exists(), "backup was created");
+        // Backups are now rotating + dated: <dbname>.bak.<stamp>
+        let bak_prefix = format!("{}.bak.", path.file_name().unwrap().to_string_lossy());
+        let has_backup = fs::read_dir(path.parent().unwrap())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .any(|e| e.file_name().to_string_lossy().starts_with(&bak_prefix));
+        assert!(has_backup, "rotating backup was created");
     }
 
     #[test]

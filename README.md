@@ -123,6 +123,32 @@ Safety rails around every run:
   via temp-file + rename with rotating dated backups (newest 10 kept)
 - Every intake move is logged to `~/.dj-crates-tools/intake-moves.log` for undo
 
+### Record-pool FTP intake (`scripts/pool_sync.py`)
+
+Pulls new tracks from a DJ record pool you subscribe to (accessed over FTP) and
+files them automatically. Because a pool has far more than you want, it only
+looks at what is **new since the last run**, keeps tracks matching your filter
+rules, downloads them into `GENRES/UNASSIGNED/_pool-intake`, then runs the same
+artist-match classifier as the one-button Sync — so recognized artists land
+straight in their genre folders and the rest wait in UNASSIGNED for review.
+
+```bash
+scripts/pool_sync.py --init                      # write ~/.dj-crates-tools/pool.json
+export DJPOOL_PASSWORD='…'                        # keep the password out of the file
+scripts/pool_sync.py --crates-root ~/Music/CRATES            # dry-run: show what would download
+scripts/pool_sync.py --crates-root ~/Music/CRATES --execute  # download + auto-file
+```
+
+Filters live in `pool.json`: `include_any` (whitelist substrings — leave empty
+to allow all), `exclude_any` (drop acapellas/intros/etc.), `extensions`, and
+`min_bytes`/`max_bytes`. Connection uses FTPS by default (`"tls": true`); the
+password comes from `DJPOOL_PASSWORD` first, then the config file (which is
+written `chmod 600`). State lives in `~/.dj-crates-tools/pool-seen.json` and
+every download is logged to `pool-downloads.log`. Run it on a schedule (launchd
+/ cron) for hands-off delivery; your normal Sync then mirrors the new tracks to
+Serato and Apple Music. This is a plain FTP client for a service you pay for —
+it has nothing to do with streaming rippers.
+
 ### Symlinks = multi-crate membership
 
 One song often belongs in several crates (its genre folder, a playlist, Kory

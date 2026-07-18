@@ -52,12 +52,20 @@ CONFIG_TEMPLATE = {
     "password": "",
     "_password_note": "Leave blank and export DJPOOL_PASSWORD instead (safer).",
     "remote_dirs": ["/"],
+    "_remote_dirs_note": "Start with ['/'] and dry-run to see the pool's folder "
+    "names, then narrow to just the genre folders you want.",
     "filters": {
         "extensions": [".mp3", ".m4a", ".flac", ".wav", ".aiff"],
-        "include_any": [],
-        "_include_note": "If non-empty, filename must contain at least one of these (case-insensitive).",
-        "exclude_any": ["(acapella)", "(intro)", "(instrumental)"],
-        "_exclude_note": "Drop if filename contains any of these.",
+        "include_any": [
+            "hip-hop", "hip hop", "rap", "r&b", "rnb",
+            "afrobeat", "amapiano", "dancehall", "reggaeton", "reggae",
+            "latin", "gospel", "house", "soul", "pop",
+        ],
+        "_include_note": "Matches anywhere in the remote PATH (folder or "
+        "filename), case-insensitive. Empty = allow all.",
+        "exclude_any": [],
+        "_exclude_note": "Empty on purpose — DJ intro/acapella edits are useful. "
+        "Add version tags here only if a type clutters you.",
         "min_bytes": 500000,
         "max_bytes": 0,
         "_bytes_note": "max_bytes 0 = no cap.",
@@ -150,12 +158,15 @@ def walk_remote(ftp, root):
 
 # ── filtering ────────────────────────────────────────────────────────────────
 
-def passes_filters(name, size, f):
-    ext = os.path.splitext(name)[1].lower()
+def passes_filters(path, size, f):
+    # `path` is the full remote path so genre lives in the FOLDER, not the
+    # filename — pool files are usually "Artist - Title (Clean).mp3", so
+    # include/exclude match against the whole path (e.g. "/Amapiano/…").
+    ext = os.path.splitext(path)[1].lower()
     allowed = [e.lower() for e in f.get("extensions", list(AUDIO_EXT))]
     if ext not in allowed:
         return False
-    lower = name.lower()
+    lower = path.lower()
     inc = [s.lower() for s in f.get("include_any", []) if s]
     if inc and not any(s in lower for s in inc):
         return False
@@ -212,7 +223,7 @@ def main():
             if is_new:
                 new_files.append((path, size))
 
-        matched = [(p, s) for p, s in new_files if passes_filters(os.path.basename(p), s, filters)]
+        matched = [(p, s) for p, s in new_files if passes_filters(p, s, filters)]
         matched.sort()
         if args.limit:
             matched = matched[: args.limit]

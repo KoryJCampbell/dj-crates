@@ -1,21 +1,45 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", "SF Pro Display", -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --color-bg: #0a0a0f;
-  --color-surface: #12121a;
-  --color-surface-hover: #1a1a25;
-  --color-border: #2a2a3a;
-  --color-border-hover: #3a3a50;
-  --color-text: #e8e8ef;
-  --color-text-dim: #8888a0;
-  --color-accent: #6366f1;
-  --color-accent-hover: #818cf8;
-  --color-success: #22c55e;
-  --color-warning: #eab308;
-  --color-danger: #ef4444;
+  /* Surfaces — warm near-black */
+  --color-bg: #0b0b0c;
+  --color-surface: #121214;
+  --color-surface-2: #17171a;
+  --color-surface-3: #1d1d21;
+  --color-elevated: #1f1f23;
+
+  /* Borders / rules */
+  --color-border: rgba(255, 255, 255, 0.07);
+  --color-border-2: rgba(255, 255, 255, 0.12);
+  --color-rule: rgba(255, 255, 255, 0.05);
+
+  /* Text */
+  --color-text: #ededee;
+  --color-text-2: #a1a1a6;
+  --color-text-3: #6c6c72;
+  --color-text-4: #49494f;
+
+  /* Accent — hot orange */
+  --color-accent: #ff5a1f;
+  --color-accent-2: #ff7a47;
+  --color-accent-dim: #8a3311;
+
+  /* Semantic */
+  --color-ok: #5ec27c;
+  --color-warn: #e0b040;
+  --color-err: #e0614a;
+
+  /* Legacy aliases kept for any lingering references */
+  --color-surface-hover: #1d1d21;
+  --color-border-hover: rgba(255, 255, 255, 0.18);
+  --color-text-dim: #a1a1a6;
+  --color-accent-hover: #ff7a47;
+  --color-success: #5ec27c;
+  --color-warning: #e0b040;
+  --color-danger: #e0614a;
 }
 
 * {
@@ -24,24 +48,93 @@
   box-sizing: border-box;
 }
 
-html, body, #root {
+html,
+body,
+#root {
   height: 100%;
   background-color: var(--color-bg);
   color: var(--color-text);
   font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar */
+button {
+  font-family: inherit;
+  color: inherit;
+}
+input,
+textarea {
+  font-family: inherit;
+  color: inherit;
+}
+
+/* Animations */
+@keyframes djc-breathe {
+  0%,
+  100% {
+    opacity: 0.4;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.06);
+  }
+}
+@keyframes djc-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes djc-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+@keyframes djc-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+@keyframes djc-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Scrollbars */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 10px;
+  height: 10px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--color-surface);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-border-hover);
+  background: rgba(255, 255, 255, 0.16);
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
